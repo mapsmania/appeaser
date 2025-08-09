@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Appeasers Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0; padding: 0;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      background: #f9f9f9;
+    }
+    #map {
+      height: 80vh;  /* 70% of viewport height */
+      width: 100%;
+    }
+    #info {
+      padding: 15px 20px;
+      background: #fff;
+      font-size: 1rem;
+      line-height: 1.4;
+      border-top: 1px solid #ddd;
+      flex-grow: 0;
+    }
+    #downloadBtn {
+      margin-top: 10px;
+      padding: 10px 16px;
+      font-size: 1rem;
+      background-color: #0078a8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+    #downloadBtn:hover {
+      background-color: #005f7a;
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="info">
+  Donald Trump says he will meet Vladimir Putin next week. He also says that an end to the war must involve “some swapping of territories”. This map shows an area of land roughly the size of Crimea. Drag the shape to the area of the United States that you are prepared to give up. Feel free to share a screenshot of your map on social media.
+  <br />
+  <button id="downloadBtn">Download Map Screenshot</button>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="crimea.js"></script>
+
+<script>
+  // Create map with preserveDrawingBuffer:true for screenshot
+  const map = new maplibregl.Map({
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [-98.5795, 39.8283], // Center over US
+    zoom: 4,
+    container: 'map',
+    preserveDrawingBuffer: true
+  });
+
+  // Polygon data from crimea.js
+  let crimeaPolygon = crimeaGeoJSON;
+
+    // Function to get centroid of polygon
+function getCentroid(coords) {
+  let sumX = 0, sumY = 0, len = coords.length;
+  coords.forEach(c => { sumX += c[0]; sumY += c[1]; });
+  return [sumX / len, sumY / len];
+}
+
+// Get current centroid of polygon
+const currentCentroid = getCentroid(crimeaPolygon.geometry.coordinates[0]);
+
+// Desired center over US (approximate center of US)
+const desiredCenter = [-98.5795, 39.8283];
+
+// Calculate offset
+const offsetLng = desiredCenter[0] - currentCentroid[0];
+const offsetLat = desiredCenter[1] - currentCentroid[1];
+
+// Shift polygon coordinates by offset
+crimeaPolygon.geometry.coordinates[0] = crimeaPolygon.geometry.coordinates[0].map(coord => [
+  coord[0] + offsetLng,
+  coord[1] + offsetLat
+]);
+
+
+  // Variables for dragging polygon
+  let isDragging = false;
+  let startLngLat;
+
+  map.on('load', () => {
+    // Add GeoJSON source
+    map.addSource('crimea-polygon', {
+      type: 'geojson',
+      data: crimeaPolygon
+    });
+
+    // Fill layer
+    map.addLayer({
+      id: 'crimea-fill',
+      type: 'fill',
+      source: 'crimea-polygon',
+      paint: {
+        'fill-color': '#ff0000',
+        'fill-opacity': 0.5
+      }
+    });
+
+    // Outline layer
+    map.addLayer({
+      id: 'crimea-outline',
+      type: 'line',
+      source: 'crimea-polygon',
+      paint: {
+        'line-color': '#000000',
+        'line-width': 2
+      }
+    });
+
+    // Fit to polygon bounds (optional, since we center on US)
+    // const bbox = turf.bbox(crimeaPolygon);
+    // map.fitBounds(bbox, { padding: 20 });
+
+    // Dragging logic
+    map.on('mousedown', 'crimea-fill', (e) => {
+      e.preventDefault();
+      isDragging = true;
+      startLngLat = e.lngLat;
+      map.getCanvas().style.cursor = 'grab';
+    });
+
+    map.on('mousemove', (e) => {
+      if (!isDragging) return;
+
+      const currentLngLat = e.lngLat;
+      const offsetLng = currentLngLat.lng - startLngLat.lng;
+      const offsetLat = currentLngLat.lat - startLngLat.lat;
+
+      const newCoordinates = crimeaPolygon.geometry.coordinates[0].map(coord => [
+        coord[0] + offsetLng,
+        coord[1] + offsetLat
+      ]);
+
+      crimeaPolygon.geometry.coordinates = [newCoordinates];
+      map.getSource('crimea-polygon').setData(crimeaPolygon);
+
+      startLngLat = currentLngLat;
+    });
+
+    map.on('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        map.getCanvas().style.cursor = '';
+      }
+    });
+
+    map.on('mouseenter', 'crimea-fill', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+
+    map.on('mouseleave', 'crimea-fill', () => {
+      if (!isDragging) {
+        map.getCanvas().style.cursor = '';
+      }
+    });
+
+    map.on('mouseout', () => {
+      if (isDragging) {
+        isDragging = false;
+        map.getCanvas().style.cursor = '';
+      }
+    });
+  });
+
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+  const canvas = map.getCanvas();
+
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = canvas.width;
+  tempCanvas.height = canvas.height;
+  const ctx = tempCanvas.getContext('2d');
+
+  ctx.drawImage(canvas, 0, 0);
+
+  ctx.font = '36px Arial';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  ctx.textAlign = 'center';
+
+  const padding = 20;
+  const maxWidth = tempCanvas.width * 0.8; // max width 80% of canvas width
+  const lineHeight = 44; // ~ font size + some space
+
+  const text = 'This is roughly the amount of land that Donald Trump wants to give to Russia.';
+
+  // Function to split text into lines based on maxWidth
+  function getLines(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let currentLine = words[0];
+
+    for (let i = 1; i < words.length; i++) {
+      const word = words[i];
+      const width = ctx.measureText(currentLine + ' ' + word).width;
+      if (width < maxWidth) {
+        currentLine += ' ' + word;
+      } else {
+        lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    lines.push(currentLine);
+    return lines;
+  }
+
+  const lines = getLines(ctx, text, maxWidth);
+
+  // Calculate total height of text block
+  const textBlockHeight = lines.length * lineHeight;
+
+  // Draw semi-transparent background rectangle behind all lines
+  const rectX = tempCanvas.width / 2 - maxWidth / 2 - padding;
+  const rectY = tempCanvas.height - textBlockHeight - padding * 2 - 30;
+  const rectWidth = maxWidth + padding * 2;
+  const rectHeight = textBlockHeight + padding * 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+
+  // Draw each line of text
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  lines.forEach((line, index) => {
+    ctx.fillText(line, tempCanvas.width / 2, rectY + padding + (index + 1) * lineHeight - 10);
+  });
+
+  const dataUrl = tempCanvas.toDataURL('image/png');
+
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = 'map-screenshot.png';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+});
+
+</script>
+
+</body>
+</html>
